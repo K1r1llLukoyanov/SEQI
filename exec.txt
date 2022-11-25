@@ -1,0 +1,15 @@
+.data
+    var 0x02
+
+
+.text
+<main:0x0000>
+    CALL 0x05
+    HALT
+
+<func:0x05>
+    CALL 0xA
+    RET
+
+<func2:0xA>
+    RET

@@ -1,38 +1,39 @@
 import os
 from typing import List
 
-regfile: dict[str, int] = {'EAX':  0x0,
-                           'EBX':  0x1,
-                           'ECX':  0x2,
-                           'EDX':  0x3,
-                           'ESI':  0x4,
-                           'EDI':  0x5,
-                           'EBP':  0x6,
-                           'ESP':  0x7,
-                           'R8D':  0x8,
-                           'R9D':  0x9,
-                           'R10D': 0xA,
-                           'R11D': 0xB,
-                           'R12D': 0xC,
-                           'R13D': 0xD,
-                           'R14D': 0xE,
-                           'R15D': 0xF
-                           }
+regfile: dict[str, int] = {
+    'eax':  0x0,
+    'ebx':  0x1,
+    'ecx':  0x2,
+    'edx':  0x3,
+    'esi':  0x4,
+    'edi':  0x5,
+    'ebp':  0x6,
+    'esp':  0x7,
+    'r8d':  0x8,
+    'r9d':  0x9,
+    'r10d': 0xA,
+    'r11d': 0xB,
+    'r12d': 0xC,
+    'r13d': 0xD,
+    'r14d': 0xE,
+    'r15d': 0xF
+}
 
 
 class opcodes(enumerate):
-    MOVRR = 0b000000
-    MOVRM = 0b000001
-    MOVMR = 0b000010
-    MOVRI = 0b000011
-    ADDRR = 0b000100
-    ADDMR = 0b000101
-    ADDRM = 0b000110
+    movrr = 0b000000
+    movrm = 0b000001
+    movmr = 0b000010
+    movri = 0b000011
+    addrr = 0b000100
+    addmr = 0b000101
+    addrm = 0b000110
     ADDRI = 0b000111
-    CALL = 0b001100
-    RET = 0b010000
-    HALT = 0b001000
-    PASS = 0b100000
+    call = 0b001100
+    ret = 0b010000
+    halt = 0b001000
+    passop = 0b100000
 
 
 variables = {}
@@ -48,44 +49,44 @@ def parse_instruction(instruction: List['str']):
         lop, rop = instruction[1: 3]
         lop = lop.split(',')[0]
         parsed = 0
-        if op == 'MOVRR':
-            parsed = opcodes.MOVRR << 26
+        if op == 'movrr':
+            parsed = opcodes.movrr << 26
             lop = regfile[lop]
             rop = regfile[rop]
             return parsed + (lop << 22) + (rop << 18)
-        elif op == 'MOVRM':
-            parsed = opcodes.MOVRM << 26
+        elif op == 'movrm':
+            parsed = opcodes.movrm << 26
             lop = regfile[lop]
             rop = int(rop, 16)
-            return parsed + (lop << 22) + (rop << 18)
-        elif op == 'MOVMR':
-            parsed = opcodes.MOVMR << 26
+            return parsed + (lop << 22) + rop
+        elif op == 'movmr':
+            parsed = opcodes.movmr << 26
             lop = int(lop, 16)
             rop = regfile[rop]
-            return parsed + (lop << 22) + (rop << 18)
-        elif op == 'MOVRI':
-            parsed = opcodes.MOVRI << 26
+            return parsed + lop + (rop << 18)
+        elif op == 'movri':
+            parsed = opcodes.movri << 26
             lop = regfile[lop]
             if rop in variables.keys():
                 rop = int(variables[rop], 16)
             else:
                 rop = int(rop, 16)
-            return parsed + (lop << 22) + (rop << 18)
-        elif op == 'ADDRR':
-            parsed = opcodes.ADDRR << 26
+            return parsed + (lop << 22) + rop
+        elif op == 'addrr':
+            parsed = opcodes.addrr << 26
             lop = int(regfile[lop], 16)
             rop = int(regfile[rop], 16)
             return parsed + (lop << 22) + (rop << 18)
-        elif op == 'ADDRM':
-            parsed = opcodes.ADDRM << 26
+        elif op == 'addrm':
+            parsed = opcodes.addrm << 26
             lop = regfile[lop]
             rop = int(rop, 16)
-            return parsed + (lop << 22) + (rop << 18)
-        elif op == 'ADDMR':
-            parsed = opcodes.ADDMR << 26
+            return parsed + (lop << 22) + rop
+        elif op == 'addmr':
+            parsed = opcodes.addmr << 26
             lop = int(lop, 16)
             rop = regfile[rop]
-            return parsed + (lop << 22) + (rop << 18)
+            return parsed + lop + (rop << 18)
         elif op == 'ADDRI':
             parsed = opcodes.ADDRI << 26
             rop = regfile[rop]
@@ -93,24 +94,24 @@ def parse_instruction(instruction: List['str']):
                 lop = variables[lop]
             else:
                 lop = int(lop, 16)
-            return parsed + (lop << 22) + (rop << 18)
+            return parsed + (lop << 22) + rop
     elif n == 2:
         lop = instruction[1]
-        if op == 'CALL':
-            parsed = opcodes.CALL << 26
+        if op == 'call':
+            parsed = opcodes.call << 26
             if lop in functions_addresses:
                 lop = int(functions_addresses[lop], 16)
             else:
                 lop = int(lop, 16)
-            return parsed + (lop << 22)
+            return parsed + lop
     elif n == 1:
-        if op == 'HALT':
-            parsed = opcodes.HALT << 26
+        if op == 'halt':
+            parsed = opcodes.halt << 26
             return parsed
-        elif op == 'PASS':
-            return opcodes.PASS << 26
-        elif op == 'RET':
-            return opcodes.RET << 26
+        elif op == 'passop':
+            return opcodes.passop << 26
+        elif op == 'ret':
+            return opcodes.ret << 26
     else:
         print('{} - unknown instruction'.format(op))
         exit(0)
@@ -163,9 +164,9 @@ def asm_parser(file_name, computer):
             else:
                 splited_line = line.split(' ')
                 instruction = parse_instruction(splited_line)
-                instruction = instruction + instruction_address + 1
+                instruction = instruction
                 computer.writeMem(instruction_address,
                                   instruction.to_bytes(4, 'big'))
-                instruction_address += 1
+                instruction_address += 4
         cur_line += 1
     computer.set_pc(pc_val)

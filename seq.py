@@ -9,13 +9,23 @@ class opcodes(enumerate):
     movrm = 0b000001
     movmr = 0b000010
     movri = 0b000011
+
     addrr = 0b000100
     addmr = 0b000101
     addrm = 0b000110
     addri = 0b000111
-    call = 0b001100
+
+    call = 0b001000
+
+    jp = 0b001100
+    jnz = 0b001101
+    jne = 0b001110
+    je = 0b001111
+
     ret = 0b010000
-    halt = 0b001000
+
+    halt = 0b010100
+
     passop = 0b100000
 
 
@@ -42,8 +52,22 @@ class SEQ(object):
             'r14d': 0xE,
             'r15d': 0xF
         }
+
+        self.status_flags = {
+            'CF': 0b0,  # carry flag
+            'PF': 0b0,  # parity flag
+            'AF': 0b0,  # adjust flag
+            'ZF': 0b0,  # zero flag
+            'SF': 0b0,  # sign flag
+            'TF': 0b0,  # trap flag
+            'IF': 0b0,  # Interrupt enable flag
+            'DF': 0b0,  # direction flag
+            'OF': 0b0,  # overflow flag
+        }
+
         self.registers: List[bytearray] = bytearray(4*16)
 
+        # Decode stage registers
         self.decode_registers: dict[str, None | int] = {
             'stat': 0b0000,
             'icode': None,
@@ -52,6 +76,8 @@ class SEQ(object):
             'rB': None,
             'valP': None
         }
+
+        # Execute stage registers
         self.execute_registers: dict[str, None | int] = {
             'stat': 0b0000,
             'icode': None,
@@ -65,6 +91,8 @@ class SEQ(object):
             'srcA': None,
             'srcB': None
         }
+
+        # Memory stage registers
         self.memory_registers: dict[str, None | int] = {
             'stat': 0b000,
             'icode': None,
@@ -73,6 +101,8 @@ class SEQ(object):
             'dstE': None,
             'dstM': None
         }
+
+        # Write back stage registers
         self.write_back_registers: dict[str, None | int] = {
             'stat': 0b0000,
             'icode': None,
@@ -82,30 +112,72 @@ class SEQ(object):
             'dstM': None
         }
 
-        self.active = [False]*5
+        # Stage activation flags
+        # 0 - Fetch stage
+        # 1 - Decode stage
+        # 2 - Execute stage
+        # 3 - Memory stage
+        # 4 - Write back stage
+        self.stage_active = [False]*5
 
+        # Program counter
         self.PC = 0x0000
 
+        # Memory control flag
         self.memory_control = 0b00
+
+        # Write back control flag
         self.write_back_control = 0b0
 
-    def readMem(self, addr) -> int:
+    def readMem(self, addr: str | int) -> int:
+        """
+            Function for reading from memory
+            def readMem(memory_address: str | int)
+
+            memory_address - string with hex number or int
+
+            It reads 4 bytes:
+                1:  memory_address
+                2:  memory_address+1
+                3:  memory_address+2
+                4:  memory_address+3
+            from memory.
+        """
         if type(addr) == type('str'):
             addr = int(addr, 16)
             return struct.unpack('>I', self.memory[addr: addr+4])[0]
         return struct.unpack('>I', self.memory[addr: addr+4])[0]
 
-    def writeMem(self, addr, data: bytearray) -> bool:
+    def writeMem(self, addr: int | str, data: bytearray) -> bool:
+        """
+            Function for writting into memory
+            def writeMem(memory_address: int | str, data: bytearray)
+
+            memory_address - int or string with hex number
+
+            Function writes each by of the data into memory beginning with byte at memory_address.
+        """
         if type(addr) == type(''):
             addr = int(addr, 16)
         for i in range(len(data)):
             self.memory[addr + i] = data[i]
 
-    def writeReg(self, reg, data: bytearray) -> None:
+    def writeReg(self, reg: int, data: bytearray) -> None:
+        """
+            Function for writting into registers
+            def writeRed(reg: int, data: bytearray)
+            
+            reg = 0: eax
+            reg = 1: ebx
+            ...
+        """
         for i in range(4):
             self.registers[reg*4 + i] = data[i]
 
     def readReg(self, reg):
+        """
+            Function for reading from registers
+        """
         return struct.unpack('>I', self.registers[4*reg: 4*reg+4])[0]
 
     def fetch_instruction(self, instruction_address):
@@ -117,7 +189,7 @@ class SEQ(object):
 
         operation_data = [opcode, loperand, roperand]
 
-        if opcode in [opcodes.movmr, opcodes.addmr]:
+        if opcode in [opcodes.movmr, opcodes.addmr, opcodes.jnz, opcodes.je, opcodes.jp, opcodes.jne]:
             operation_data[1] = immediate
         elif opcode in [opcodes.movrm, opcodes.addrm, opcodes.movri]:
             operation_data[2] = immediate
@@ -138,10 +210,10 @@ class SEQ(object):
             opcode, loper, roper = self.fetch_instruction(
                 self.PC)
             new_PC = self.PC+4
-            self.active[0] = True
+            self.stage_active[0] = True
             complete_steps = ""
             for i in range(top_stage, bottom_stage, -1):
-                if self.active[i]:
+                if self.stage_active[i]:
                     if i == 4:
                         if not self.write_back_registers['stat'] == 0b0000:
                             print('Write back error')
@@ -154,7 +226,7 @@ class SEQ(object):
                                     self.write_back_registers['valE'], self.write_back_registers['valM']))
                                 top_stage = 4
                                 bottom_stage = -1
-                        self.active[4] = False
+                        self.stage_active[4] = False
                         complete_steps = "W" + complete_steps
                     elif i == 3:
                         if not self.memory_registers['stat'] == 0b0000:
@@ -174,13 +246,13 @@ class SEQ(object):
                             self.write_back_registers['valM'] = self.memory_registers['valA']
                             self.write_back_control = 1
                             self.memory_control = 0
-                            self.active[4] = True
+                            self.stage_active[4] = True
 
                         self.write_back_registers['stat'] = self.write_back_registers['stat']
                         self.write_back_registers['dstE'] = self.memory_registers['dstE']
                         self.write_back_registers['dstM'] = self.memory_registers['dstM']
                         self.write_back_registers['icode'] = self.memory_registers['icode']
-                        self.active[3] = False
+                        self.stage_active[3] = False
                         complete_steps = "M" + complete_steps
                     elif i == 2:
                         complete_steps = "E" + complete_steps
@@ -193,7 +265,7 @@ class SEQ(object):
                                 print('E: movrr {}, {}'.format(
                                     self.execute_registers['valA'], self.execute_registers['valB']))
 
-                                if self.active[4] and self.write_back_registers['valE'] == self.execute_registers['valB']:
+                                if self.stage_active[4] and self.write_back_registers['valE'] == self.execute_registers['valB']:
                                     print(
                                         'E: Waiting register to be written back')
                                     top_stage = 4
@@ -216,7 +288,7 @@ class SEQ(object):
                                 print('E: movmr {}, {}'.format(
                                     self.execute_registers['valA'], self.execute_registers['valB']))
 
-                                if self.active[4] and self.write_back_registers['valE'] == self.execute_registers['valB']:
+                                if self.stage_active[4] and self.write_back_registers['valE'] == self.execute_registers['valB']:
                                     print(
                                         'E: Waiting register to be written back')
                                     top_stage = 4
@@ -235,7 +307,7 @@ class SEQ(object):
                                     self.memory_registers['valE'], self.memory_registers['valA']))
                                 self.memory_control = 2
                             elif exec_opcode == opcodes.halt:
-                                self.active[0], self.active[1], self.active[2] = False, False, False
+                                self.stage_active[0], self.stage_active[1], self.stage_active[2] = False, False, False
                                 stop_computing = True
                                 print('E: halt')
                                 top_stage = 4
@@ -251,16 +323,16 @@ class SEQ(object):
                         self.memory_registers['icode'] = self.execute_registers['icode']
                         self.memory_registers['dstM'] = self.execute_registers['dstM']
                         self.memory_registers['dstE'] = self.execute_registers['dstE']
-                        self.active[3] = True
-                        self.active[2] = False
+                        self.stage_active[3] = True
+                        self.stage_active[2] = False
                     elif i == 1:
                         self.execute_registers['stat'] = self.decode_registers['stat']
                         self.execute_registers['icode'] = self.decode_registers['icode']
                         self.execute_registers['ifun'] = self.decode_registers['ifun']
                         self.execute_registers['valA'] = self.decode_registers['rA']
                         self.execute_registers['valB'] = self.decode_registers['rB']
-                        self.active[2] = True
-                        self.active[1] = False
+                        self.stage_active[2] = True
+                        self.stage_active[1] = False
                         complete_steps = "D" + complete_steps
                     elif i == 0:
                         self.decode_registers['stat'] == 0b0000
@@ -270,6 +342,7 @@ class SEQ(object):
                         self.decode_registers['rB'] = roper
                         complete_steps = "F" + complete_steps
 
+                        # Program counter prediction
                         if opcode == opcodes.call:
                             print('F: call PREDICTED')
                             self.writeMem(self.readReg(7),
@@ -282,10 +355,16 @@ class SEQ(object):
                             self.set_stack_pointer(self.readReg(7) - 1)
                             self.PC = self.readMem(self.readReg(7))
                             break
+                        elif opcode in [opcodes.jne, opcodes.je, opcodes.jnz]:
+                            pass
+                        elif opcode == opcodes.jp:
+                            print('F: JUMP PREDICTED')
+                            self.PC = loper
+                            break
 
                         self.PC = new_PC
-                        self.active[1] = True
-                        self.active[0] = False
+                        self.stage_active[1] = True
+                        self.stage_active[0] = False
             if stop_computing:
                 finish_prev -= 1
             print(complete_steps)

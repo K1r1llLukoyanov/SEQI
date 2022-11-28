@@ -26,18 +26,29 @@ class opcodes(enumerate):
     movrm = 0b000001
     movmr = 0b000010
     movri = 0b000011
+
     addrr = 0b000100
     addmr = 0b000101
     addrm = 0b000110
-    ADDRI = 0b000111
-    call = 0b001100
+    addri = 0b000111
+
+    call = 0b001000
+
+    jp = 0b001100
+    jnz = 0b001101
+    jne = 0b001110
+    je = 0b001111
+
     ret = 0b010000
-    halt = 0b001000
+
+    halt = 0b010100
+
     passop = 0b100000
 
 
 variables = {}
 functions_addresses = {}
+address_points = {}
 
 
 def parse_instruction(instruction: List['str']):
@@ -68,7 +79,7 @@ def parse_instruction(instruction: List['str']):
             parsed = opcodes.movri << 26
             lop = regfile[lop]
             if rop in variables.keys():
-                rop = int(variables[rop], 16)
+                rop = variables[rop]
             else:
                 rop = int(rop, 16)
             return parsed + (lop << 22) + rop
@@ -87,13 +98,13 @@ def parse_instruction(instruction: List['str']):
             lop = int(lop, 16)
             rop = regfile[rop]
             return parsed + lop + (rop << 18)
-        elif op == 'ADDRI':
-            parsed = opcodes.ADDRI << 26
-            rop = regfile[rop]
-            if lop in variables.keys():
-                lop = variables[lop]
+        elif op == 'addri':
+            parsed = opcodes.addri << 26
+            lop = regfile[lop]
+            if rop in variables.keys():
+                rop = variables[rop]
             else:
-                lop = int(lop, 16)
+                rop = int(rop, 16)
             return parsed + (lop << 22) + rop
     elif n == 2:
         lop = instruction[1]
@@ -104,6 +115,11 @@ def parse_instruction(instruction: List['str']):
             else:
                 lop = int(lop, 16)
             return parsed + lop
+        elif op == 'jnz':
+            parsed = opcodes.jnz << 26
+            lop = address_points[lop]
+            return parsed + lop
+
     elif n == 1:
         if op == 'halt':
             parsed = opcodes.halt << 26
@@ -119,7 +135,7 @@ def parse_instruction(instruction: List['str']):
 
 def parse_variable(encoded):
     var_name, var_value = encoded.split(' ')
-    variables[var_name] = var_value
+    variables[var_name] = int(var_value, 16)
     print(variables)
 
 
@@ -139,12 +155,16 @@ def asm_parser(file_name, computer):
             cur_line += 1
             continue
         if line[0] == '.':
-            if len(line) > 4:
+            line_len = len(line)
+            if line_len > 4:
                 if line[1:5] == 'text':
                     section_type = 2
                 elif line[1:5] == 'data':
                     section_type = 1
-            cur_line
+            elif line_len > 1:
+                address_points[line[1: len(line)]] = instruction_address
+                print(address_points)
+            cur_line+=1
             continue
         if section_type == 1:
             parse_variable(line)

@@ -4,16 +4,17 @@
 .text
 <main:0x0000>
     movri ebx, var
-    movrr ecx, ebx
-    movmr 0xFF, ecx
-    movri ecx, var
+	addri ebx, var2
+	movri ecx, var
 .L1
-    addri eax, var
-    addri ecx, var2
-    jnz L1
-    call 0xAA
+	addri eax, var
+	addri ecx, var2
+	jnz L1	
     halt
 
 <func:0xAA>
-    movri edx, var
-    ret
+	call 0xFF
+	ret
+
+<func2:0xFF>
+	ret

@@ -1,27 +1,8 @@
 import os
 from typing import List
+from utils import regfile, twos_components
 
-regfile: dict[str, int] = {
-    'eax':  0x0,
-    'ebx':  0x1,
-    'ecx':  0x2,
-    'edx':  0x3,
-    'esi':  0x4,
-    'edi':  0x5,
-    'ebp':  0x6,
-    'esp':  0x7,
-    'r8d':  0x8,
-    'r9d':  0x9,
-    'r10d': 0xA,
-    'r11d': 0xB,
-    'r12d': 0xC,
-    'r13d': 0xD,
-    'r14d': 0xE,
-    'r15d': 0xF
-}
-
-
-class opcodes(enumerate):
+class opcodes(enumerate): # instruction opcodes
     movrr = 0b000000
     movrm = 0b000001
     movmr = 0b000010
@@ -46,147 +27,179 @@ class opcodes(enumerate):
     passop = 0b100000
 
 
-variables = {}
-functions_addresses = {}
-address_points = {}
+variables = {} # variables from .data
+functions_addresses = {} # function_addresses for call instructions
+address_points = {} # address_poinst for jump instructions
 
+def get_number_of_bytes(instruction: int) -> int:
+    #opcode = instruction & ((1 << 6) - 1)
+    #if opcode in [0b010000, 0b010100, 0b100000]:
+    #    return 1
+    #elif opcode in [0b000000,0b000100]:
+    #    return 2
+    return 6
 
-def parse_instruction(instruction: List['str']):
+def parse_instruction(instruction: List['str']) -> int: 
     global opcodes
     print(instruction)
-    op = instruction[0]
-    n = len(instruction)
-    if n == 3:
+    op = instruction[0] # operation
+    n = len(instruction) # len of instruction
+
+    if n == 3: # Type: operation left, right
         lop, rop = instruction[1: 3]
         lop = lop.split(',')[0]
         parsed = 0
         if op == 'movrr':
-            parsed = opcodes.movrr << 26
+            parsed = opcodes.movrr
             lop = regfile[lop]
             rop = regfile[rop]
-            return parsed + (lop << 22) + (rop << 18)
+            return parsed + (lop << 6) + (rop << 10)
         elif op == 'movrm':
-            parsed = opcodes.movrm << 26
+            parsed = opcodes.movrm
             lop = regfile[lop]
             rop = int(rop, 16)
-            return parsed + (lop << 22) + rop
+            return parsed + (lop << 6) + (rop << 14)
         elif op == 'movmr':
-            parsed = opcodes.movmr << 26
+            parsed = opcodes.movmr
             lop = int(lop, 16)
             rop = regfile[rop]
-            return parsed + lop + (rop << 18)
+            return parsed + (lop << 14) + (rop << 10)
         elif op == 'movri':
-            parsed = opcodes.movri << 26
+            parsed = opcodes.movri
             lop = regfile[lop]
             if rop in variables.keys():
                 rop = variables[rop]
             else:
                 rop = int(rop, 16)
-            return parsed + (lop << 22) + rop
+            rop = twos_components(rop)
+            print(rop)
+            return parsed + (lop << 6) + (rop << 14)
         elif op == 'addrr':
-            parsed = opcodes.addrr << 26
+            parsed = opcodes.addrr
             lop = int(regfile[lop], 16)
             rop = int(regfile[rop], 16)
-            return parsed + (lop << 22) + (rop << 18)
+            return parsed + (lop << 6) + (rop << 10)
         elif op == 'addrm':
             parsed = opcodes.addrm << 26
             lop = regfile[lop]
             rop = int(rop, 16)
-            return parsed + (lop << 22) + rop
+            return parsed + (lop << 6) + (rop << 14)
         elif op == 'addmr':
-            parsed = opcodes.addmr << 26
+            parsed = opcodes.addmr
             lop = int(lop, 16)
             rop = regfile[rop]
-            return parsed + lop + (rop << 18)
+            return parsed + (lop << 14) + (rop << 10)
         elif op == 'addri':
-            parsed = opcodes.addri << 26
+            parsed = opcodes.addri
             lop = regfile[lop]
             if rop in variables.keys():
                 rop = variables[rop]
             else:
                 rop = int(rop, 16)
-            return parsed + (lop << 22) + rop
-    elif n == 2:
+            rop = twos_components(rop)
+            return parsed + (lop << 6) + (rop << 14)
+
+    elif n == 2: # Type: operation left
         lop = instruction[1]
         if op == 'call':
-            parsed = opcodes.call << 26
+            parsed = opcodes.call
             if lop in functions_addresses:
                 lop = int(functions_addresses[lop], 16)
             else:
                 lop = int(lop, 16)
-            return parsed + lop
+            return parsed + (lop << 14)
         elif op == 'jnz':
-            parsed = opcodes.jnz << 26
+            parsed = opcodes.jnz
             lop = address_points[lop]
-            return parsed + lop
-
-    elif n == 1:
+            return parsed + (lop << 14)
+        elif op == 'je':
+            parsed = opcodes.je
+            lop = address_points[lop]
+            return parsed + (lop << 14)
+        elif op == 'jne':
+            parsed = opcodes.jne
+            lop = address_points[lop]
+            return parsed + (lop << 14)
+        elif op == 'jp':
+            parsed = opcodes.jp
+            lop = address_points[lop]
+            return parsed + (lop << 14)
+    
+    elif n == 1: # Type: operation
         if op == 'halt':
-            parsed = opcodes.halt << 26
+            parsed = opcodes.halt
             return parsed
         elif op == 'passop':
-            return opcodes.passop << 26
+            return opcodes.passop
         elif op == 'ret':
-            return opcodes.ret << 26
-    else:
+            return opcodes.ret
+    else: # if operation is unknown
         print('{} - unknown instruction'.format(op))
         exit(0)
 
 
-def parse_variable(encoded):
+def parse_variable(encoded: str) -> None:
+    """
+        Function for parsing variable
+        def parse_variable(encoded: str) -> None:
+        str - string of type: variable_name variable_value
+    """
     var_name, var_value = encoded.split(' ')
     variables[var_name] = int(var_value, 16)
     print(variables)
 
 
-def asm_parser(file_name, computer):
+def asm_parser(file_name: str, computer) -> None:
+    """
+        Function for getting assember instruction, parsing them and loading into memory
+        def asm_parser(file_name: str, computer: SEQ) -> None:
+    """
     global entry_point
     entry_point = -1
     pc_val = 0
     instruction_address = -1
     f = open(file_name)
     file_size = os.path.getsize(file_name)
-    data = f.read(file_size).split('\n')
-    data = list(map(lambda x: x.strip(' ').lstrip(' '), data))
-    section_type = 0
-    cur_line = 0
+    data = f.read(file_size).split('\n') # get lines without \n character
+    data = list(map(lambda x: x.rstrip(' ').rstrip('\t').lstrip(' ').lstrip('\t'), data)) # delete spaces from left and from right of all lines
+    section_type = 0 # for current file section
+    cur_line = 0 # current line
     for line in data:
-        if not line:
+        if not line:    # line is empty
             cur_line += 1
             continue
-        if line[0] == '.':
-            line_len = len(line)
-            if line_len > 4:
-                if line[1:5] == 'text':
-                    section_type = 2
-                elif line[1:5] == 'data':
-                    section_type = 1
+        if line[0] == '.': # line begins with .
+            line_len = len(line) # len of the line
+            if line_len == 5: # checking for len (to not get out of range)
+                if line[1:5] == 'text': # line is .text
+                    section_type = 2    # set section type to 2
+                elif line[1:5] == 'data': # line is .data
+                    section_type = 1    # set section type to 1
             elif line_len > 1:
-                address_points[line[1: len(line)]] = instruction_address
+                address_points[line[1: len(line)]] = instruction_address # getting address point for loops
                 print(address_points)
-            cur_line+=1
+            cur_line += 1
             continue
-        if section_type == 1:
-            parse_variable(line)
-        elif section_type == 2:
-            if '<' in line and '>' in line:
-                if 'main' in line:
-                    pc_val = int(line.split('main')[1].split(
-                        ':')[1].split('>')[0], 16)
+        if section_type == 1: # if current section is .data
+            parse_variable(line) # parsing variable
+        elif section_type == 2: # if current section is .text
+            if '<' in line and '>' in line: # detecting function
+                parsed = line.split('<')[1].split(':')
+                function_name = parsed[0]
+                function_address = int(parsed[1].split('>')[0], 16)
+                functions_addresses[function_name] = function_address
+                instruction_address = function_address
+                if function_name == "main":
+                    pc_val = function_address
                     entry_point = cur_line
-                    instruction_address = pc_val
-                else:
-                    parsed = line.split('<')[1].split(':')
-                    function_name = parsed[0]
-                    function_address = int(parsed[1].split('>')[0], 16)
-                    functions_addresses[function_name] = function_address
-                    instruction_address = function_address
+                cur_line+=1
             else:
-                splited_line = line.split(' ')
-                instruction = parse_instruction(splited_line)
-                instruction = instruction
+                # Current line is instruction
+                splited_line = line.split(' ') # split line
+                instruction = parse_instruction(splited_line) # getting int instruction value
+                num_of_bytes = get_number_of_bytes(instruction)
                 computer.writeMem(instruction_address,
-                                  instruction.to_bytes(4, 'big'))
-                instruction_address += 4
-        cur_line += 1
-    computer.set_pc(pc_val)
+                                  instruction.to_bytes(num_of_bytes, 'little')) # writting instruction into memory
+                instruction_address += num_of_bytes # increasing instruction_address by 4 to get instruction address for next instruction
+        cur_line += 1 
+    computer.set_pc(pc_val) # setting init program counter value

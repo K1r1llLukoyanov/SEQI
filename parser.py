@@ -3,28 +3,36 @@ from typing import List
 from utils import regfile, twos_components
 
 class opcodes(enumerate): # instruction opcodes
-    movrr = 0b000000
-    movrm = 0b000001
-    movmr = 0b000010
-    movri = 0b000011
+    movrr = 0b00000000
+    movrm = 0b00000001
+    movmr = 0b00000010
+    movri = 0b00000011
 
-    addrr = 0b000100
-    addmr = 0b000101
-    addrm = 0b000110
-    addri = 0b000111
+    addrr = 0b00001000
+    addmr = 0b00001001
+    addrm = 0b00001010
+    addri = 0b00001011
+    subrr = 0b00001100
+    submr = 0b00001101
+    subrm = 0b00001110
+    subri = 0b00001111
 
-    call = 0b001000
+    call =  0b00110000
 
-    jp = 0b001100
-    jnz = 0b001101
-    jne = 0b001110
-    je = 0b001111
+    jp  =   0b00011000
+    jnz =   0b00011001
+    jne =   0b00011010
+    je  =   0b00011011
+    jge =   0b00011100
+    jle =   0b00011101
+    jg  =   0b00011110
+    jl  =   0b00011111
 
-    ret = 0b010000
 
-    halt = 0b010100
+    ret =    0b00010000
+    halt =   0b00010100
+    passop = 0b00100000
 
-    passop = 0b100000
 
 
 variables = {} # variables from .data
@@ -32,11 +40,11 @@ functions_addresses = {} # function_addresses for call instructions
 address_points = {} # address_poinst for jump instructions
 
 def get_number_of_bytes(instruction: int) -> int:
-    #opcode = instruction & ((1 << 6) - 1)
-    #if opcode in [0b010000, 0b010100, 0b100000]:
-    #    return 1
-    #elif opcode in [0b000000,0b000100]:
-    #    return 2
+    opcode = instruction & ((1 << 8) - 1)
+    if opcode in [0b00010000, 0b00010100, 0b00100000]:
+        return 1
+    elif opcode in [0b00000000,0b00001000, 0b00001100]:
+        return 2
     return 6
 
 def parse_instruction(instruction: List['str']) -> int: 
@@ -53,17 +61,17 @@ def parse_instruction(instruction: List['str']) -> int:
             parsed = opcodes.movrr
             lop = regfile[lop]
             rop = regfile[rop]
-            return parsed + (lop << 6) + (rop << 10)
+            return parsed + (lop << 8) + (rop << 12)
         elif op == 'movrm':
             parsed = opcodes.movrm
             lop = regfile[lop]
             rop = int(rop, 16)
-            return parsed + (lop << 6) + (rop << 14)
+            return parsed + (lop << 8) + (rop << 16)
         elif op == 'movmr':
             parsed = opcodes.movmr
             lop = int(lop, 16)
             rop = regfile[rop]
-            return parsed + (lop << 14) + (rop << 10)
+            return parsed + (lop << 16) + (rop << 12)
         elif op == 'movri':
             parsed = opcodes.movri
             lop = regfile[lop]
@@ -73,22 +81,22 @@ def parse_instruction(instruction: List['str']) -> int:
                 rop = int(rop, 16)
             rop = twos_components(rop)
             print(rop)
-            return parsed + (lop << 6) + (rop << 14)
+            return parsed + (lop << 8) + (rop << 16)
         elif op == 'addrr':
             parsed = opcodes.addrr
             lop = int(regfile[lop], 16)
             rop = int(regfile[rop], 16)
-            return parsed + (lop << 6) + (rop << 10)
+            return parsed + (lop << 8) + (rop << 12)
         elif op == 'addrm':
-            parsed = opcodes.addrm << 26
+            parsed = opcodes.addrm
             lop = regfile[lop]
             rop = int(rop, 16)
-            return parsed + (lop << 6) + (rop << 14)
+            return parsed + (lop << 8) + (rop << 16)
         elif op == 'addmr':
             parsed = opcodes.addmr
             lop = int(lop, 16)
             rop = regfile[rop]
-            return parsed + (lop << 14) + (rop << 10)
+            return parsed + (lop << 16) + (rop << 12)
         elif op == 'addri':
             parsed = opcodes.addri
             lop = regfile[lop]
@@ -97,7 +105,32 @@ def parse_instruction(instruction: List['str']) -> int:
             else:
                 rop = int(rop, 16)
             rop = twos_components(rop)
-            return parsed + (lop << 6) + (rop << 14)
+            return parsed + (lop << 8) + (rop << 16)
+        elif op == 'subri':
+            parsed = opcodes.subri
+            lop = regfile[lop]
+            if rop in variables.keys():
+                rop = variables[rop]
+            else:
+                rop = int(rop, 16)
+            rop = twos_components(rop)
+            return parsed + (lop << 8) + (rop << 16)
+        elif op == 'subrr':
+            parsed = opcodes.subrr
+            lop = regfile[lop]
+            rop = regfile[rop]
+            return parsed + (lop << 8) + (rop << 12)
+        elif op == 'submr':
+            parsed = opcodes.submr
+            lop = int(lop, 16)
+            rop = regfile[rop]
+            return parsed + (rop << 12) + (lop << 16)
+        elif op == 'subrm':
+            parsed = opcodes.subrm
+            lop = regfile[lop]
+            rop = int(rop, 16)
+            return parsed + (lop << 8) + (rop << 16)
+
 
     elif n == 2: # Type: operation left
         lop = instruction[1]
@@ -107,23 +140,39 @@ def parse_instruction(instruction: List['str']) -> int:
                 lop = int(functions_addresses[lop], 16)
             else:
                 lop = int(lop, 16)
-            return parsed + (lop << 14)
+            return parsed + (lop << 16)
         elif op == 'jnz':
             parsed = opcodes.jnz
             lop = address_points[lop]
-            return parsed + (lop << 14)
+            return parsed + (lop << 16)
         elif op == 'je':
             parsed = opcodes.je
             lop = address_points[lop]
-            return parsed + (lop << 14)
+            return parsed + (lop << 16)
         elif op == 'jne':
             parsed = opcodes.jne
             lop = address_points[lop]
-            return parsed + (lop << 14)
+            return parsed + (lop << 16)
         elif op == 'jp':
             parsed = opcodes.jp
             lop = address_points[lop]
-            return parsed + (lop << 14)
+            return parsed + (lop << 16)
+        elif op == 'jge':
+            parsed = opcodes.jge
+            lop = address_points[lop]
+            return parsed + (lop << 16)
+        elif op == 'jg':
+            parsed = opcodes.jg
+            lop = address_points[lop]
+            return parsed + (lop << 16)
+        elif op == 'jl':
+            parsed = opcodes.jl
+            lop = address_points[lop]
+            return parsed + (lop << 16)
+        elif op == 'jle':
+            parsed = opcodes.jle
+            lop = address_points[lop]
+            return parsed + (lop << 16)
     
     elif n == 1: # Type: operation
         if op == 'halt':

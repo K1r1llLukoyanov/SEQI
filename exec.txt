@@ -1,15 +1,16 @@
 .data
     var 0x02
-    var2 -0x01
+    var2 0x01
 .text
 <main:0x0000>
     movri ebx, var
-	addri ebx, var2
+	subri ebx, var2
 	movri ecx, var
 .L1
-	addri eax, var
-	addri ecx, var2
-	jnz L1	
+	subri eax, var
+	subri ebx, var2
+	subri ecx, var2
+	jge L1
     halt
 
 <func:0xAA>

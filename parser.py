@@ -28,6 +28,8 @@ class opcodes(enumerate): # instruction opcodes
     jg  =   0b00011110
     jl  =   0b00011111
 
+    push =  0b00111000
+    pop  =  0b00111001
 
     ret =    0b00010000
     halt =   0b00010100
@@ -38,6 +40,8 @@ class opcodes(enumerate): # instruction opcodes
 variables = {} # variables from .data
 functions_addresses = {} # function_addresses for call instructions
 address_points = {} # address_poinst for jump instructions
+
+instruction_stack = []
 
 def get_number_of_bytes(instruction: int) -> int:
     opcode = instruction & ((1 << 8) - 1)
@@ -141,38 +145,39 @@ def parse_instruction(instruction: List['str']) -> int:
             else:
                 lop = int(lop, 16)
             return parsed + (lop << 16)
-        elif op == 'jnz':
-            parsed = opcodes.jnz
-            lop = address_points[lop]
-            return parsed + (lop << 16)
-        elif op == 'je':
-            parsed = opcodes.je
-            lop = address_points[lop]
-            return parsed + (lop << 16)
-        elif op == 'jne':
-            parsed = opcodes.jne
-            lop = address_points[lop]
-            return parsed + (lop << 16)
-        elif op == 'jp':
-            parsed = opcodes.jp
-            lop = address_points[lop]
-            return parsed + (lop << 16)
-        elif op == 'jge':
-            parsed = opcodes.jge
-            lop = address_points[lop]
-            return parsed + (lop << 16)
-        elif op == 'jg':
-            parsed = opcodes.jg
-            lop = address_points[lop]
-            return parsed + (lop << 16)
-        elif op == 'jl':
-            parsed = opcodes.jl
-            lop = address_points[lop]
-            return parsed + (lop << 16)
-        elif op == 'jle':
-            parsed = opcodes.jle
-            lop = address_points[lop]
-            return parsed + (lop << 16)
+        if op in ['jnz', 'je', 'jne', 'jp', 'jge', 'jg', 'jl', 'jle']:
+            parsed = 0
+            if op == 'jnz':
+                parsed = opcodes.jnz
+            elif op == 'je':
+                parsed = opcodes.je
+            elif op == 'jne':
+                parsed = opcodes.jne
+            elif op == 'jp':
+                parsed = opcodes.jp
+            elif op == 'jge':
+                parsed = opcodes.jge
+            elif op == 'jg':
+                parsed = opcodes.jg
+            elif op == 'jl':
+                parsed = opcodes.jl
+            elif op == 'jle':
+                parsed = opcodes.jle
+            
+            if lop not in address_points.keys():
+                raise Exception('Unknown address point: .{}'.format(lop))
+            parsed += (address_points[lop] << 16)
+
+            return parsed
+
+        elif op == 'push':
+            parsed = opcodes.push
+            lop = regfile[lop]
+            return parsed + (lop << 8)
+        elif op == 'pop':
+            parsed = opcodes.pop
+            lop = regfile[lop]
+            return parsed + (lop << 8)
     
     elif n == 1: # Type: operation
         if op == 'halt':
@@ -204,15 +209,50 @@ def asm_parser(file_name: str, computer) -> None:
         def asm_parser(file_name: str, computer: SEQ) -> None:
     """
     global entry_point
+
     entry_point = -1
     pc_val = 0
     instruction_address = -1
+    
     f = open(file_name)
     file_size = os.path.getsize(file_name)
+
     data = f.read(file_size).split('\n') # get lines without \n character
     data = list(map(lambda x: x.rstrip(' ').rstrip('\t').lstrip(' ').lstrip('\t'), data)) # delete spaces from left and from right of all lines
-    section_type = 0 # for current file section
+    
     cur_line = 0 # current line
+    section_type = 0 # for current file section
+
+    for line in data:
+        if not line:
+            continue
+        if line[0] == '.':
+            line_len = len(line)
+            if line_len != 5 and line_len > 1 or (line_len == 5 and line[1:5] != 'text' and line[1:5] != 'data'):
+                address_points[line[1: len(line)]] = instruction_address # getting address point for loops
+                print(address_points)
+            elif line_len == 5:
+                if line[1:5] == 'text':
+                    section_type = 2
+                elif line[1:5] == 'data':
+                    section_type = 1
+            else:
+                raise Exception('Irregular address {}'.format(line[1:line_len]))
+        elif '<' in line and '>' in line: # detecting function
+            if section_type == 2: # if current section is .text
+                parsed = line.split('<')[1].split(':')
+                function_name = parsed[0]
+                function_address = int(parsed[1].split('>')[0], 16)
+                functions_addresses[function_name] = function_address
+                instruction_address = function_address
+                if function_name == "main":
+                    pc_val = function_address
+                    entry_point = cur_line
+            else:
+                raise Exception('function declaration should be in .text section: {}'.format(line))
+        elif section_type == 2:
+            instruction_address+=6
+
     for line in data:
         if not line:    # line is empty
             cur_line += 1
@@ -224,15 +264,12 @@ def asm_parser(file_name: str, computer) -> None:
                     section_type = 2    # set section type to 2
                 elif line[1:5] == 'data': # line is .data
                     section_type = 1    # set section type to 1
-            elif line_len > 1:
-                address_points[line[1: len(line)]] = instruction_address # getting address point for loops
-                print(address_points)
             cur_line += 1
             continue
         if section_type == 1: # if current section is .data
             parse_variable(line) # parsing variable
-        elif section_type == 2: # if current section is .text
-            if '<' in line and '>' in line: # detecting function
+        elif '<' in line and '>' in line: # detecting function
+            if section_type == 2: # if current section is .text
                 parsed = line.split('<')[1].split(':')
                 function_name = parsed[0]
                 function_address = int(parsed[1].split('>')[0], 16)
@@ -241,14 +278,15 @@ def asm_parser(file_name: str, computer) -> None:
                 if function_name == "main":
                     pc_val = function_address
                     entry_point = cur_line
-                cur_line+=1
             else:
+                raise Exception('function declaration should be in .text section: {}'.format(line))
+        elif section_type == 2:
                 # Current line is instruction
                 splited_line = line.split(' ') # split line
                 instruction = parse_instruction(splited_line) # getting int instruction value
                 num_of_bytes = get_number_of_bytes(instruction)
                 computer.writeMem(instruction_address,
                                   instruction.to_bytes(num_of_bytes, 'little')) # writting instruction into memory
-                instruction_address += num_of_bytes # increasing instruction_address by 4 to get instruction address for next instruction
+                instruction_address += 6 # increasing instruction_address by 4 to get instruction address for next instruction
         cur_line += 1 
     computer.set_pc(pc_val) # setting init program counter value

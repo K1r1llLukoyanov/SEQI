@@ -278,8 +278,6 @@ def asm_parser(file_name: str, computer) -> None:
                 if function_name == "main":
                     pc_val = function_address
                     entry_point = cur_line
-            else:
-                raise Exception('function declaration should be in .text section: {}'.format(line))
         elif section_type == 2:
                 # Current line is instruction
                 splited_line = line.split(' ') # split line

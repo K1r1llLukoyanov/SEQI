@@ -1,6 +1,6 @@
 import struct
 from typing import List
-from parser import asm_parser
+from asm_parser import asm_parser
 from time import sleep
 from utils import regfile, twos_components
 
@@ -283,6 +283,7 @@ class SEQ(object):
                             self.write_back_registers['valE'] = self.memory_registers['valA']
                             self.write_back_registers['valM'] = self.readMem(self.memory_registers['valE'], 4)
                             self.stage_active[4] = True # Activate Write-back stage
+                            self.memory_control = 0
 
                         self.write_back_registers['stat'] = self.write_back_registers['stat']
                         self.write_back_registers['dstE'] = self.memory_registers['dstE']
@@ -400,12 +401,14 @@ class SEQ(object):
                                 self.memory_registers['valA'] = twos_components(operation_result)
 
                             elif exec_opcode == opcodes.push:
+                                print('Push from {}'.format(self.execute_registers['valA']))
                                 self.memory_registers['valE'] = self.readReg(7)
                                 self.set_stack_pointer(self.readReg(7) + 4)
                                 self.memory_registers['valA'] = self.readReg(self.execute_registers['valA'])
                                 self.memory_control = 1
 
                             elif exec_opcode == opcodes.pop:
+                                print('POP to {}'.format(self.execute_registers['valA']))
                                 self.set_stack_pointer(self.readReg(7) - 4)
                                 self.memory_registers['valE'] = self.readReg(7)
                                 self.memory_registers['valA'] = self.execute_registers['valA']
@@ -453,8 +456,10 @@ class SEQ(object):
                             Writting information about instruction to the decode stage
                         """
                         # Program counter prediction
-                     
                         if opcode == opcodes.call:
+                            exec_opcode = self.execute_registers['icode']*8 + self.execute_registers['ifun']
+                            if self.stage_active[2] and (exec_opcode == opcodes.push or exec_opcode == opcodes.pop):
+                                break
                             # If current fetched instruction is call instruction
                             print('F: call PREDICTED')
                             self.writeMem(self.readReg(7),

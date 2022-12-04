@@ -16,6 +16,8 @@
 	jg L1
 
 	pop ebx
+	call 0xAA
+
     halt
 
 <func:0xAA>

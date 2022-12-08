@@ -238,304 +238,305 @@ class SEQ(object):
             self.stage_active[0] = True
             complete_steps = ""
             for i in range(top_stage, bottom_stage, -1):
-                if self.stage_active[i]:
-                    if i == 4:
-                        """
-                            SEQ's Write-back stage
-                            At this stage data is written back to destination register
-                        """
-                        if not self.write_back_registers['stat'] == 0b0000: # Checking for errors
-                            print('Write back error')
-                        self.writeReg(
-                            self.write_back_registers['valE'], self.write_back_registers['valM'].to_bytes(4, 'little'))
-                        self.write_back_control = 0
-                        if finish_write_back: # Finishing write-back for source register at execute stage
-                            print('Written back: {} {}'.format(
-                                self.write_back_registers['valE'], self.write_back_registers['valM']))
+                if not self.stage_active[i]:
+                    continue
+                if i == 4:
+                    """
+                        SEQ's Write-back stage
+                        At this stage data is written back to destination register
+                    """
+                    if not self.write_back_registers['stat'] == 0b0000: # Checking for errors
+                        print('Write back error')
+                    self.writeReg(
+                        self.write_back_registers['valE'], self.write_back_registers['valM'].to_bytes(4, 'little'))
+                    self.write_back_control = 0
+                    if finish_write_back: # Finishing write-back for source register at execute stage
+                        print('Written back: {} {}'.format(
+                            self.write_back_registers['valE'], self.write_back_registers['valM']))
+                        top_stage = 4
+                        bottom_stage = -1   # executing all active stages
+                    self.stage_active[4] = False            # Disable stage
+                    complete_steps = "W" + complete_steps   # Add to completed stages info
+                elif i == 3:
+                    """
+                        SEQ's Memory stage
+                        At this stage data is written into memory or sent to written back stage
+                    """
+                    if not self.memory_registers['stat'] == 0b0000: # Checking for errors
+                        print('Memory stage error')
+                    elif self.memory_control == 1:  # Writting into memory
+                        print('M: Writing into memory: {}, {}'.format(
+                            self.memory_registers['valE'], self.memory_registers['valA']))
+                        # Writting into memory_address stored at valE, data is stored at valA
+                        self.writeMem(
+                            self.memory_registers['valE'], self.memory_registers['valA'].to_bytes(4, 'little'))
+                        self.memory_control = 0
+                    elif self.memory_control == 2:  # Sending to write-back stage
+                        print('M: Send to write back: ', end="")
+                        print(
+                            self.memory_registers['valE'], self.memory_registers['valA'])
+                        # For write-back stage: valE - destination register address, valM - value to store.
+                        self.write_back_registers['valE'] = self.memory_registers['valE']
+                        self.write_back_registers['valM'] = self.memory_registers['valA']
+                        self.memory_control = 0
+                        self.stage_active[4] = True # Activate Write-back stage
+                    elif self.memory_control == 3:
+                        self.write_back_registers['valE'] = self.memory_registers['valA']
+                        self.write_back_registers['valM'] = self.readMem(self.memory_registers['valE'], 4)
+                        self.stage_active[4] = True # Activate Write-back stage
+                        self.memory_control = 0
+
+                    self.write_back_registers['stat'] = self.write_back_registers['stat']
+                    self.write_back_registers['dstE'] = self.memory_registers['dstE']
+                    self.write_back_registers['dstM'] = self.memory_registers['dstM']
+                    self.write_back_registers['icode'] = self.memory_registers['icode']
+                    self.stage_active[3] = False    # Disable memory stage
+                    complete_steps = "M" + complete_steps
+                elif i == 2:
+                    """
+                        SEQ's Execute stage
+                        At this stage instructions are executed.
+                    """
+                    complete_steps = "E" + complete_steps
+                    if not self.execute_registers['stat'] == 0: # Checking for errors
+                        print('Execute stage error')
+                    else:
+                        # Calculating instruction opcode from instruction code and functional code
+
+                        exec_opcode = self.execute_registers['icode'] * 8 + self.execute_registers['ifun']
+
+                        # If source register is now destination register at write-back stage, we need to want until
+                        # data will be stored in it.
+                        if self.write_back_registers['valE'] == self.execute_registers['valB'] and exec_opcode in [opcodes.movrr, opcodes.addrr, opcodes.addmr, opcodes.submr] and self.stage_active[4]:
+                            print('E: Waiting register to be written back')
                             top_stage = 4
-                            bottom_stage = -1   # executing all active stages
-                        self.stage_active[4] = False            # Disable stage
-                        complete_steps = "W" + complete_steps   # Add to completed stages info
-                    elif i == 3:
-                        """
-                            SEQ's Memory stage
-                            At this stage data is written into memory or sent to written back stage
-                        """
-                        if not self.memory_registers['stat'] == 0b0000: # Checking for errors
-                            print('Memory stage error')
-                        elif self.memory_control == 1:  # Writting into memory
-                            print('M: Writing into memory: {}, {}'.format(
+                            bottom_stage = 2
+                            finish_write_back = True
+                            break # breaking to wait until write-back stage
+
+                        if  self.write_back_registers['valE'] == self.execute_registers['valA'] and exec_opcode in [opcodes.movrr, opcodes.addrr, opcodes.addrm, opcodes.subrm, opcodes.subri, opcodes.subrr, opcodes.push] and self.stage_active[4]:
+                            print('E: Waiting register to be written back')
+                            top_stage = 4
+                            bottom_stage = 2
+                            finish_write_back = True
+                            break # breaking to wait until write-back stage
+
+                        # Checking opcode type
+                        if exec_opcode == opcodes.movrr:
+                            print('E: movrr {}, {}'.format(
+                                self.execute_registers['valA'], self.execute_registers['valB'])) # Printing operation
+
+                            self.memory_registers['valE'] = self.execute_registers['valA'] # Left operand becomes memory_address
+                            self.memory_registers['valA'] = self.readReg(
+                                self.execute_registers['valB']) # From register address we get source register data and store it at valA of mem stage
+
+                            self.memory_control = 2 # memory_control value for sending from memory stage to write-back stage
+                        elif exec_opcode == opcodes.movrm:
+                            self.memory_registers['valA'] = self.readMem(
+                                    self.execute_registers['valB'])# Getting value from valB address and send it to valA of mem stage
+                            self.memory_registers['valE'] = self.execute_registers['valA'] # sending destination register
+                            print('E: movrm {}, {}'.format(
                                 self.memory_registers['valE'], self.memory_registers['valA']))
-                            # Writting into memory_address stored at valE, data is stored at valA
-                            self.writeMem(
-                                self.memory_registers['valE'], self.memory_registers['valA'].to_bytes(4, 'little'))
-                            self.memory_control = 0
-                        elif self.memory_control == 2:  # Sending to write-back stage
-                            print('M: Send to write back: ', end="")
-                            print(
-                                self.memory_registers['valE'], self.memory_registers['valA'])
-                            # For write-back stage: valE - destination register address, valM - value to store.
-                            self.write_back_registers['valE'] = self.memory_registers['valE']
-                            self.write_back_registers['valM'] = self.memory_registers['valA']
-                            self.memory_control = 0
-                            self.stage_active[4] = True # Activate Write-back stage
-                        elif self.memory_control == 3:
-                            self.write_back_registers['valE'] = self.memory_registers['valA']
-                            self.write_back_registers['valM'] = self.readMem(self.memory_registers['valE'], 4)
-                            self.stage_active[4] = True # Activate Write-back stage
-                            self.memory_control = 0
+                            self.memory_control = 2 # Set up memory control for sending from memory stage to write-back stage
+                        elif exec_opcode == opcodes.movmr:
+                            print('E: movmr {}, {}'.format(
+                                self.execute_registers['valA'], self.execute_registers['valB'])) # Printing instruction
+                            
+                            self.memory_registers['valE'] = self.execute_registers['valA'] # sending memory_address to the memory stage
+                            self.memory_registers['valA'] = self.readReg(
+                                self.execute_registers['valB']) # Getting value from source register
+                            self.memory_control = 1 # setting memory contol to write into memory
+                        elif exec_opcode == opcodes.movri:
+                            self.memory_registers['valE'] = self.execute_registers['valA'] # Sending register address to memory stage
+                            self.memory_registers['valA'] = twos_components(self.execute_registers['valB']) # Sending immediate value to memory stage
+                            print('E: movri {}, {}'.format(
+                                self.memory_registers['valE'], self.memory_registers['valA']))
+                            self.memory_control = 2 # setting memory control for writting back
 
-                        self.write_back_registers['stat'] = self.write_back_registers['stat']
-                        self.write_back_registers['dstE'] = self.memory_registers['dstE']
-                        self.write_back_registers['dstM'] = self.memory_registers['dstM']
-                        self.write_back_registers['icode'] = self.memory_registers['icode']
-                        self.stage_active[3] = False    # Disable memory stage
-                        complete_steps = "M" + complete_steps
-                    elif i == 2:
-                        """
-                            SEQ's Execute stage
-                            At this stage instructions are executed.
-                        """
-                        complete_steps = "E" + complete_steps
-                        if not self.execute_registers['stat'] == 0: # Checking for errors
-                            print('Execute stage error')
-                        else:
-                            # Calculating instruction opcode from instruction code and functional code
-
-                            exec_opcode = self.execute_registers['icode'] * 8 + self.execute_registers['ifun']
-
-                            # If source register is now destination register at write-back stage, we need to want until
-                            # data will be stored in it.
-                            if self.write_back_registers['valE'] == self.execute_registers['valB'] and exec_opcode in [opcodes.movrr, opcodes.addrr, opcodes.addmr, opcodes.submr] and self.stage_active[4]:
-                                print('E: Waiting register to be written back')
-                                top_stage = 4
-                                bottom_stage = 2
-                                finish_write_back = True
-                                break # breaking to wait until write-back stage
-
-                            if  self.write_back_registers['valE'] == self.execute_registers['valA'] and exec_opcode in [opcodes.movrr, opcodes.addrr, opcodes.addrm, opcodes.subrm, opcodes.subri, opcodes.subrr, opcodes.push] and self.stage_active[4]:
-                                print('E: Waiting register to be written back')
-                                top_stage = 4
-                                bottom_stage = 2
-                                finish_write_back = True
-                                break # breaking to wait until write-back stage
-
-                            # Checking opcode type
-                            if exec_opcode == opcodes.movrr:
-                                print('E: movrr {}, {}'.format(
-                                    self.execute_registers['valA'], self.execute_registers['valB'])) # Printing operation
-
-                                self.memory_registers['valE'] = self.execute_registers['valA'] # Left operand becomes memory_address
-                                self.memory_registers['valA'] = self.readReg(
-                                    self.execute_registers['valB']) # From register address we get source register data and store it at valA of mem stage
-
-                                self.memory_control = 2 # memory_control value for sending from memory stage to write-back stage
-                            elif exec_opcode == opcodes.movrm:
-                                self.memory_registers['valA'] = self.readMem(
-                                        self.execute_registers['valB'])# Getting value from valB address and send it to valA of mem stage
-                                self.memory_registers['valE'] = self.execute_registers['valA'] # sending destination register
-                                print('E: movrm {}, {}'.format(
-                                    self.memory_registers['valE'], self.memory_registers['valA']))
-                                self.memory_control = 2 # Set up memory control for sending from memory stage to write-back stage
-                            elif exec_opcode == opcodes.movmr:
-                                print('E: movmr {}, {}'.format(
-                                    self.execute_registers['valA'], self.execute_registers['valB'])) # Printing instruction
-                                
-                                self.memory_registers['valE'] = self.execute_registers['valA'] # sending memory_address to the memory stage
-                                self.memory_registers['valA'] = self.readReg(
-                                    self.execute_registers['valB']) # Getting value from source register
-                                self.memory_control = 1 # setting memory contol to write into memory
-                            elif exec_opcode == opcodes.movri:
-                                self.memory_registers['valE'] = self.execute_registers['valA'] # Sending register address to memory stage
-                                self.memory_registers['valA'] = twos_components(self.execute_registers['valB']) # Sending immediate value to memory stage
-                                print('E: movri {}, {}'.format(
-                                    self.memory_registers['valE'], self.memory_registers['valA']))
-                                self.memory_control = 2 # setting memory control for writting back
-
-                            elif exec_opcode in [opcodes.addrr, opcodes.addmr, opcodes.addrm, opcodes.addri, opcodes.subrr, opcodes.subri, opcodes.submr, opcodes.subrm]:
-                                left_operand = 0
-                                right_operand = 0
-                                sign = (exec_opcode & (1 << 2))
-                                
-                                if exec_opcode == opcodes.addrr or exec_opcode == opcodes.subrr:
-                                    left_operand = twos_components(self.readReg(self.execute_registers['valA']))
-                                    right_operand = twos_components(self.readReg(self.execute_registers['valB']))
-                                    self.memory_control = 2
-                                elif exec_opcode == opcodes.addri or exec_opcode == opcodes.subri:
-                                    left_operand = twos_components(self.readReg(self.execute_registers['valA']))
-                                    right_operand = self.execute_registers['valB']
-                                    self.memory_control = 2
-                                elif exec_opcode == opcodes.addrm or exec_opcode == opcodes.subrm:
-                                    left_operand = twos_components(self.readReg(self.execute_registers['valA']))
-                                    right_operand = twos_components(self.readMem(self.execute_registers['valB']))
-                                    self.memory_control = 2
-                                elif exec_opcode == opcodes.addmr or exec_opcode == opcodes.addmr:
-                                    left_operand = twos_components(self.readMem(self.execute_registers['valA']))
-                                    right_operand = twos_components(self.readReg(self.execute_registers['valB']))
-                                    self.memory_control = 1
-
-                                operation_result = None
-
-                                if sign:
-                                    print('sub operation: {} {}'.format(left_operand, right_operand))
-                                    operation_result = left_operand - right_operand
-                                else:
-                                    print('add operation: {} {}'.format(left_operand, right_operand))
-                                    operation_result = left_operand + right_operand
-
-                                if operation_result == 0:
-                                    self.status_flags['ZF'] = 1
-                                else:
-                                    self.status_flags['ZF'] = 0
-                                if operation_result >= (1 << 32) or operation_result < -(1 << 32):
-                                    self.status_flags['OF'] = 1
-                                else:
-                                    self.status_flags['OF'] = 0
-                                if operation_result < 0:
-                                    self.status_flags['SF'] = 1
-                                else:
-                                    self.status_flags['SF'] = 0
-
-                                self.memory_registers['valE'] = self.execute_registers['valA']
-                                print("Opetation result: {}".format(operation_result))
-                                self.memory_registers['valA'] = twos_components(operation_result)
-
-                            elif exec_opcode == opcodes.push:
-                                print('Push from {}'.format(self.execute_registers['valA']))
-                                self.memory_registers['valE'] = self.readReg(7)
-                                self.set_stack_pointer(self.readReg(7) + 4)
-                                self.memory_registers['valA'] = self.readReg(self.execute_registers['valA'])
+                        elif exec_opcode in [opcodes.addrr, opcodes.addmr, opcodes.addrm, opcodes.addri, opcodes.subrr, opcodes.subri, opcodes.submr, opcodes.subrm]:
+                            left_operand = 0
+                            right_operand = 0
+                            sign = (exec_opcode & (1 << 2))
+                            
+                            if exec_opcode == opcodes.addrr or exec_opcode == opcodes.subrr:
+                                left_operand = twos_components(self.readReg(self.execute_registers['valA']))
+                                right_operand = twos_components(self.readReg(self.execute_registers['valB']))
+                                self.memory_control = 2
+                            elif exec_opcode == opcodes.addri or exec_opcode == opcodes.subri:
+                                left_operand = twos_components(self.readReg(self.execute_registers['valA']))
+                                right_operand = self.execute_registers['valB']
+                                self.memory_control = 2
+                            elif exec_opcode == opcodes.addrm or exec_opcode == opcodes.subrm:
+                                left_operand = twos_components(self.readReg(self.execute_registers['valA']))
+                                right_operand = twos_components(self.readMem(self.execute_registers['valB']))
+                                self.memory_control = 2
+                            elif exec_opcode == opcodes.addmr or exec_opcode == opcodes.addmr:
+                                left_operand = twos_components(self.readMem(self.execute_registers['valA']))
+                                right_operand = twos_components(self.readReg(self.execute_registers['valB']))
                                 self.memory_control = 1
 
-                            elif exec_opcode == opcodes.pop:
-                                print('POP to {}'.format(self.execute_registers['valA']))
-                                self.set_stack_pointer(self.readReg(7) - 4)
-                                self.memory_registers['valE'] = self.readReg(7)
-                                self.memory_registers['valA'] = self.execute_registers['valA']
-                                self.memory_control = 3
+                            operation_result = None
 
-                            elif exec_opcode == opcodes.halt:
-                                self.stage_active[0], self.stage_active[1], self.stage_active[2] = False, False, False # Next operation are cancelled
-                                stop_computing = True # to exit from loop
-                                print('E: halt')
-                                top_stage = 4
-                                bottom_stage = 3 # Next stage will be only: write-back and memory to wait data to write into memory or registers
-                                break
-
-                            elif exec_opcode == opcodes.passop:
-                                # This instruction does nothing
-                                print('E: Instruction passoped')
-                                self.memory_control = 0
+                            if sign:
+                                print('sub operation: {} {}'.format(left_operand, right_operand))
+                                operation_result = left_operand - right_operand
                             else:
-                                # Unknown instruction
-                                self.memory_registers['stat'] = 0b0001
+                                print('add operation: {} {}'.format(left_operand, right_operand))
+                                operation_result = left_operand + right_operand
 
-                        # Sending insformation about operation to the next stage
-                        self.memory_registers['stat'] = self.execute_registers['stat']
-                        self.memory_registers['icode'] = self.execute_registers['icode']
-                        self.memory_registers['dstM'] = self.execute_registers['dstM']
-                        self.memory_registers['dstE'] = self.execute_registers['dstE']
-                        self.stage_active[3] = True     # Activate next stage
-                        self.stage_active[2] = False    # Disable current stage
-                    elif i == 1:
-                        """
-                            Decode stage
-                            By the time it just sent data to the execute stage
-                        """
-                        self.execute_registers['stat'] = self.decode_registers['stat']
-                        self.execute_registers['icode'] = self.decode_registers['icode']
-                        self.execute_registers['ifun'] = self.decode_registers['ifun']
-                        self.execute_registers['valA'] = self.decode_registers['rA']
-                        self.execute_registers['valB'] = self.decode_registers['rB']
-                        self.stage_active[2] = True     # Activate execute stage
-                        self.stage_active[1] = False    # Disable current stage
-                        complete_steps = "D" + complete_steps
-                    elif i == 0:
-                        """
-                            Fetch stage
-                            Writting information about instruction to the decode stage
-                        """
-                        # Program counter prediction
-                        if opcode == opcodes.call:
-                            exec_opcode = self.execute_registers['icode']*8 + self.execute_registers['ifun']
-                            if self.stage_active[2] and (exec_opcode == opcodes.push or exec_opcode == opcodes.pop):
-                                break
-                            # If current fetched instruction is call instruction
-                            print('F: call PREDICTED')
-                            self.writeMem(self.readReg(7),
-                                          new_PC.to_bytes(4, 'little')) # Writting new program counter to the stack
-                            print('Before call: {}'.format(new_PC))
-                            self.set_stack_pointer(self.readReg(7) + 4) # Increase stack pointer
-                            print('CALL program counter: {}'.format(loper))
-                            self.PC = loper # new program counter is now call address
+                            if operation_result == 0:
+                                self.status_flags['ZF'] = 1
+                            else:
+                                self.status_flags['ZF'] = 0
+                            if operation_result >= (1 << 32) or operation_result < -(1 << 32):
+                                self.status_flags['OF'] = 1
+                            else:
+                                self.status_flags['OF'] = 0
+                            if operation_result < 0:
+                                self.status_flags['SF'] = 1
+                            else:
+                                self.status_flags['SF'] = 0
+
+                            self.memory_registers['valE'] = self.execute_registers['valA']
+                            print("Opetation result: {}".format(operation_result))
+                            self.memory_registers['valA'] = twos_components(operation_result)
+
+                        elif exec_opcode == opcodes.push:
+                            print('Push from {}'.format(self.execute_registers['valA']))
+                            self.memory_registers['valE'] = self.readReg(7)
+                            self.set_stack_pointer(self.readReg(7) + 4)
+                            self.memory_registers['valA'] = self.readReg(self.execute_registers['valA'])
+                            self.memory_control = 1
+
+                        elif exec_opcode == opcodes.pop:
+                            print('POP to {}'.format(self.execute_registers['valA']))
+                            self.set_stack_pointer(self.readReg(7) - 4)
+                            self.memory_registers['valE'] = self.readReg(7)
+                            self.memory_registers['valA'] = self.execute_registers['valA']
+                            self.memory_control = 3
+
+                        elif exec_opcode == opcodes.halt:
+                            self.stage_active[0], self.stage_active[1], self.stage_active[2] = False, False, False # Next operation are cancelled
+                            stop_computing = True # to exit from loop
+                            print('E: halt')
+                            top_stage = 4
+                            bottom_stage = 3 # Next stage will be only: write-back and memory to wait data to write into memory or registers
                             break
 
-                        elif opcode == opcodes.ret:
-                            # If current fetched instruction is ret instruction
-                            print('F: ret PREDICTED') 
-                            self.set_stack_pointer(self.readReg(7) - 4) # Decreasing stack pointer
-                            self.PC = self.readMem(self.readReg(7), 4) # Getting value of program coutner from memory at stack pointer address
-                            print('RETURNED TO: {}'.format(self.PC))
+                        elif exec_opcode == opcodes.passop:
+                            # This instruction does nothing
+                            print('E: Instruction passoped')
+                            self.memory_control = 0
+                        else:
+                            # Unknown instruction
+                            self.memory_registers['stat'] = 0b0001
+
+                    # Sending insformation about operation to the next stage
+                    self.memory_registers['stat'] = self.execute_registers['stat']
+                    self.memory_registers['icode'] = self.execute_registers['icode']
+                    self.memory_registers['dstM'] = self.execute_registers['dstM']
+                    self.memory_registers['dstE'] = self.execute_registers['dstE']
+                    self.stage_active[3] = True     # Activate next stage
+                    self.stage_active[2] = False    # Disable current stage
+                elif i == 1:
+                    """
+                        Decode stage
+                        By the time it just sent data to the execute stage
+                    """
+                    self.execute_registers['stat'] = self.decode_registers['stat']
+                    self.execute_registers['icode'] = self.decode_registers['icode']
+                    self.execute_registers['ifun'] = self.decode_registers['ifun']
+                    self.execute_registers['valA'] = self.decode_registers['rA']
+                    self.execute_registers['valB'] = self.decode_registers['rB']
+                    self.stage_active[2] = True     # Activate execute stage
+                    self.stage_active[1] = False    # Disable current stage
+                    complete_steps = "D" + complete_steps
+                elif i == 0:
+                    """
+                        Fetch stage
+                        Writting information about instruction to the decode stage
+                    """
+                    # Program counter prediction
+                    if opcode == opcodes.call:
+                        exec_opcode = self.execute_registers['icode']*8 + self.execute_registers['ifun']
+                        if self.stage_active[2] and (exec_opcode == opcodes.push or exec_opcode == opcodes.pop):
                             break
+                        # If current fetched instruction is call instruction
+                        print('F: call PREDICTED')
+                        self.writeMem(self.readReg(7),
+                                        new_PC.to_bytes(4, 'little')) # Writting new program counter to the stack
+                        print('Before call: {}'.format(new_PC))
+                        self.set_stack_pointer(self.readReg(7) + 4) # Increase stack pointer
+                        print('CALL program counter: {}'.format(loper))
+                        self.PC = loper # new program counter is now call address
+                        break
 
-                        elif opcode in [opcodes.jne, opcodes.je, opcodes.jnz, opcodes.jge, opcodes.jg, opcodes.jl, opcodes.jle]:
-                            # If current fetched instruction is conditional jump instrucion
-                            if not update_flag and (self.execute_registers['icode']*8 + self.execute_registers['ifun']) in [opcodes.addrr, opcodes.addmr, opcodes.addrm, opcodes.addri, opcodes.subri, opcodes.subrm, opcodes.submr, opcodes.subrr]:
-                                # waiting status flags to update
-                                update_flag = True
-                                break
-                            
-                            update_flag = False
+                    elif opcode == opcodes.ret:
+                        # If current fetched instruction is ret instruction
+                        print('F: ret PREDICTED') 
+                        self.set_stack_pointer(self.readReg(7) - 4) # Decreasing stack pointer
+                        self.PC = self.readMem(self.readReg(7), 4) # Getting value of program coutner from memory at stack pointer address
+                        print('RETURNED TO: {}'.format(self.PC))
+                        break
 
-                            if opcode == opcodes.jnz:
-                                if not self.status_flags['ZF']:
-                                    print('JNZ jump to {}'.format(loper))
-                                    self.PC = loper
-                                    break
-                            elif opcode == opcodes.je:
-                                if self.status_flags['ZF']:
-                                    print('JE jump to {}'.format(loper))
-                                    self.PC = loper
-                                    break
-                            elif opcode == opcodes.jg:
-                                if not self.status_flags['SF'] and not self.status_flags['ZF']:
-                                    print('JG jump to {}'.format(loper))
-                                    self.PC = loper
-                                    break
-                            elif opcode == opcodes.jl:
-                                if self.status_flags['SF'] and not self.status_flags['ZF']:
-                                    print('JL jump to {}'.format(loper))
-                                    self.PC = loper
-                                    break
-                            elif opcode == opcodes.jge:
-                                print('SF: {}'.format(self.status_flags['SF']))
-                                if not self.status_flags['SF'] or self.status_flags['ZF']:
-                                    print('JGE jump to {}'.format(loper))
-                                    self.PC = loper
-                                    break
-                            elif opcode == opcodes.jle:
-                                if self.status_flags['SF'] or self.status_flags['ZF']:
-                                    print('JLE jump to {}'.format(loper))
-                                    self.PC = loper
-                                    break
-
-                        elif opcode == opcodes.jp:
-                            # If current fetched instruction is unconditional jump instruction
-                            print('F: JUMP PREDICTED')
-                            self.PC = loper # Jump at address
+                    elif opcode in [opcodes.jne, opcodes.je, opcodes.jnz, opcodes.jge, opcodes.jg, opcodes.jl, opcodes.jle]:
+                        # If current fetched instruction is conditional jump instrucion
+                        if not update_flag and (self.execute_registers['icode']*8 + self.execute_registers['ifun']) in [opcodes.addrr, opcodes.addmr, opcodes.addrm, opcodes.addri, opcodes.subri, opcodes.subrm, opcodes.submr, opcodes.subrr]:
+                            # waiting status flags to update
+                            update_flag = True
                             break
                         
-                        self.decode_registers['stat'] == 0b0000 
-                        self.decode_registers['icode'] = opcode >> 3
-                        self.decode_registers['ifun'] = opcode & 0b111
-                        self.decode_registers['rA'] = loper
-                        self.decode_registers['rB'] = roper
-                        complete_steps = "F" + complete_steps
+                        update_flag = False
+
+                        if opcode == opcodes.jnz:
+                            if not self.status_flags['ZF']:
+                                print('JNZ jump to {}'.format(loper))
+                                self.PC = loper
+                                break
+                        elif opcode == opcodes.je:
+                            if self.status_flags['ZF']:
+                                print('JE jump to {}'.format(loper))
+                                self.PC = loper
+                                break
+                        elif opcode == opcodes.jg:
+                            if not self.status_flags['SF'] and not self.status_flags['ZF']:
+                                print('JG jump to {}'.format(loper))
+                                self.PC = loper
+                                break
+                        elif opcode == opcodes.jl:
+                            if self.status_flags['SF'] and not self.status_flags['ZF']:
+                                print('JL jump to {}'.format(loper))
+                                self.PC = loper
+                                break
+                        elif opcode == opcodes.jge:
+                            print('SF: {}'.format(self.status_flags['SF']))
+                            if not self.status_flags['SF'] or self.status_flags['ZF']:
+                                print('JGE jump to {}'.format(loper))
+                                self.PC = loper
+                                break
+                        elif opcode == opcodes.jle:
+                            if self.status_flags['SF'] or self.status_flags['ZF']:
+                                print('JLE jump to {}'.format(loper))
+                                self.PC = loper
+                                break
+
+                    elif opcode == opcodes.jp:
+                        # If current fetched instruction is unconditional jump instruction
+                        print('F: JUMP PREDICTED')
+                        self.PC = loper # Jump at address
+                        break
+                    
+                    self.decode_registers['stat'] == 0b0000 
+                    self.decode_registers['icode'] = opcode >> 3
+                    self.decode_registers['ifun'] = opcode & 0b111
+                    self.decode_registers['rA'] = loper
+                    self.decode_registers['rB'] = roper
+                    complete_steps = "F" + complete_steps
 
 
-                        self.PC = new_PC # Setting up new program counter
-                        self.stage_active[1] = True     # Activate Decode stage
-                        self.stage_active[0] = False    # Disable current stage
+                    self.PC = new_PC # Setting up new program counter
+                    self.stage_active[1] = True     # Activate Decode stage
+                    self.stage_active[0] = False    # Disable current stage
             if stop_computing:
                 # if stop_computing == true
                 # We need to wait to data be stored at registers or momory
@@ -585,7 +586,7 @@ class SEQ(object):
 
 
 def main():
-    seq = SEQ(32, 1024)
+    seq = SEQ(32, 4096)
     asm_parser('exec.asm', seq)
     seq.set_stack_pointer(200)
     seq.memDump()

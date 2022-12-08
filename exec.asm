@@ -8,6 +8,7 @@
 	push ebx
 	subri ebx, var2
 	movri ecx, 0xA
+	movmr 0x1AA, eax
 	jp L2
 .L1
 	addri eax, var

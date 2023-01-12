@@ -7,14 +7,13 @@
     movri ebx, var3
 	push ebx
 	subri ebx, var2
-	movri ecx, 0xA
-	movmr 0x1AA, eax
+	movri ecx, 0x2
 	jp L2
 .L1
 	addri eax, var
 .L2
 	subri ecx, 0x1
-	jg L1
+	jge L1
 
 	pop ebx
 	call 0xAA

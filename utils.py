@@ -15,7 +15,7 @@ regfile: dict[str, int] = {
     'r13d': 0xD,
     'r14d': 0xE,
     'r15d': 0xF
-} # register file
+}  # register file
 
 
 def twos_components(value: int) -> int:
